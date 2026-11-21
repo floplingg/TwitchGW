@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "flopgiveaway",
+  "version": "${version}",
+  "name": "Flop Twitch Giveaway",
+  "description": "On-stream DonutSMP giveaways from Twitch chat (!<IGN>), with countdown HUD and spinning wheel.",
+  "authors": ["Tony"],
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.flop.giveaway.FlopGiveaway"] },
+  "depends": {
+    "fabricloader": ">=0.17.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
