@@ -10,7 +10,7 @@ public final class Sounds {
 
     private static void play(SoundEvent e, float pitch, float volume) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        mc.execute(() -> mc.getSoundManager().play(PositionedSoundInstance.master(e, pitch, volume)));
+        mc.execute(() -> mc.getSoundManager().play(PositionedSoundInstance.ui(e, pitch, volume)));
     }
 
     public static void click() { play(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 0.35f); }
