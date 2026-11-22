@@ -19,5 +19,5 @@ Or locally: `./gradlew build` -> `build/libs/flop-twitch-giveaway-1.0.0.jar`. Ne
 - Accent colour dots + HUD toggle in the top-right of the menu. Settings save to `config/flopgiveaway.json`.
 
 Java names: `!Steve` (3-16 letters/digits/_). Bedrock names: `!.Gamertag` (spaces become `_`, like Geyser/Floodgate).
-If a viewer types their name wrong, they just type it again: their old entry is replaced (same spot in the list). A name can only belong to one viewer and each viewer has one name. `floplingg` and `.floplingg` count as the same player, so two accounts entering them become one entry (the first). Viewers you remove can't re-enter.
+If a viewer types their name wrong, they just type it again: their old entry is replaced (same spot in the list). A name can only belong to one viewer and each viewer has one name. `floplingg` and `.floplingg` count as the same player, so two accounts entering them become one entry (the first). Viewers you remove can enter again.
  Bot commands like !discord, !uptime are ignored.

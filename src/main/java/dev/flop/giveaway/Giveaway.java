@@ -15,7 +15,7 @@ public final class Giveaway {
     private Giveaway() {}
 
     public enum State { IDLE, RUNNING, DRAWING, DONE }
-    public enum Result { OK, UPDATED, MERGED, CLOSED, BAD_NAME, ALREADY_ENTERED, NAME_TAKEN, SUBS_ONLY, REMOVED }
+    public enum Result { OK, UPDATED, MERGED, CLOSED, BAD_NAME, ALREADY_ENTERED, NAME_TAKEN, SUBS_ONLY }
 
     public record Entry(String userKey, String ign, String viewer, String source, boolean supporter, long time) {
         public boolean bedrock() { return ign.startsWith("."); }
@@ -47,8 +47,6 @@ public final class Giveaway {
     private static final Map<String, Entry> byUser = new ConcurrentHashMap<>();
     /** name key -> viewer who owns it. Java "floplingg" and Bedrock ".floplingg" share one key. */
     private static final Map<String, String> nameOwner = new ConcurrentHashMap<>();
-    /** viewers removed by the host can't re-enter this giveaway */
-    private static final Set<String> banned = ConcurrentHashMap.newKeySet();
     public static final Deque<FeedItem> feed = new ConcurrentLinkedDeque<>();
 
     public static volatile Draw draw;
@@ -63,7 +61,6 @@ public final class Giveaway {
         entries.clear();
         byUser.clear();
         nameOwner.clear();
-        banned.clear();
         prize = c.prize.isBlank() ? "Giveaway" : c.prize.trim();
         winnersWanted = c.winners;
         startAt = System.currentTimeMillis();
@@ -86,10 +83,9 @@ public final class Giveaway {
 
     public static synchronized void remove(Entry e) {
         if (entries.remove(e)) {
-            // The viewer stays locked out; their name is freed up.
+            // Frees both the viewer and the name, so they can enter again.
             nameOwner.remove(key(e.ign()));
             byUser.remove(e.userKey());
-            banned.add(e.userKey());
             feed("Removed " + e.ign(), 0xFFAAAAAA);
         }
     }
@@ -164,7 +160,6 @@ public final class Giveaway {
         if (Config.get().subsOnly && !supporter) return Result.SUBS_ONLY;
         String uk = userKey.toLowerCase(Locale.ROOT);
         String nk = key(ign);
-        if (banned.contains(uk)) return Result.REMOVED;
         Entry old = byUser.get(uk);
         String owner = nameOwner.get(nk);
         if (owner != null && !owner.equals(uk)) {
