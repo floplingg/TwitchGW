@@ -15,7 +15,7 @@ public final class Giveaway {
     private Giveaway() {}
 
     public enum State { IDLE, RUNNING, DRAWING, DONE }
-    public enum Result { OK, UPDATED, CLOSED, BAD_NAME, ALREADY_ENTERED, NAME_TAKEN, SUBS_ONLY, REMOVED }
+    public enum Result { OK, UPDATED, MERGED, CLOSED, BAD_NAME, ALREADY_ENTERED, NAME_TAKEN, SUBS_ONLY, REMOVED }
 
     public record Entry(String userKey, String ign, String viewer, String source, boolean supporter, long time) {
         public boolean bedrock() { return ign.startsWith("."); }
@@ -45,7 +45,7 @@ public final class Giveaway {
     public static final List<Entry> entries = new CopyOnWriteArrayList<>();
     /** viewer -> their current entry */
     private static final Map<String, Entry> byUser = new ConcurrentHashMap<>();
-    /** lower-case name -> viewer who owns it */
+    /** name key -> viewer who owns it. Java "floplingg" and Bedrock ".floplingg" share one key. */
     private static final Map<String, String> nameOwner = new ConcurrentHashMap<>();
     /** viewers removed by the host can't re-enter this giveaway */
     private static final Set<String> banned = ConcurrentHashMap.newKeySet();
@@ -87,7 +87,7 @@ public final class Giveaway {
     public static synchronized void remove(Entry e) {
         if (entries.remove(e)) {
             // The viewer stays locked out; their name is freed up.
-            nameOwner.remove(e.ign().toLowerCase(Locale.ROOT));
+            nameOwner.remove(key(e.ign()));
             byUser.remove(e.userKey());
             banned.add(e.userKey());
             feed("Removed " + e.ign(), 0xFFAAAAAA);
@@ -152,6 +152,7 @@ public final class Giveaway {
             case UPDATED -> feed(viewer + " changed name to " + ign, Config.get().accent);
             case ALREADY_ENTERED -> feed(viewer + " already entered", 0xFF8A8F98);
             case NAME_TAKEN -> feed(ign + " is already in", 0xFF8A8F98);
+            case MERGED -> feed(viewer + ": " + ign + " merged with existing entry", 0xFF8A8F98);
             case SUBS_ONLY -> feed(viewer + ": subs only", 0xFF8A8F98);
             default -> { }
         }
@@ -162,18 +163,24 @@ public final class Giveaway {
         if (ign == null || !(IGN.matcher(ign).matches() || BEDROCK.matcher(ign).matches())) return Result.BAD_NAME;
         if (Config.get().subsOnly && !supporter) return Result.SUBS_ONLY;
         String uk = userKey.toLowerCase(Locale.ROOT);
-        String nk = ign.toLowerCase(Locale.ROOT);
+        String nk = key(ign);
         if (banned.contains(uk)) return Result.REMOVED;
+        Entry old = byUser.get(uk);
         String owner = nameOwner.get(nk);
-        if (owner != null) return owner.equals(uk) ? Result.ALREADY_ENTERED : Result.NAME_TAKEN;
+        if (owner != null && !owner.equals(uk)) {
+            // Another account already has this player (Java or Bedrock form): keep that one entry.
+            Entry theirs = byUser.get(owner);
+            boolean sameExact = theirs != null && theirs.ign().equalsIgnoreCase(ign);
+            return sameExact ? Result.NAME_TAKEN : Result.MERGED;
+        }
+        if (old != null && old.ign().equals(ign)) return Result.ALREADY_ENTERED;
 
         long now = System.currentTimeMillis();
-        Entry old = byUser.get(uk);
         Entry e = new Entry(uk, ign, viewer, source, supporter, old != null ? old.time() : now);
         Result r;
         if (old != null) {
             // Typo fix: swap their old name for the new one, keeping their spot in the list.
-            nameOwner.remove(old.ign().toLowerCase(Locale.ROOT));
+            nameOwner.remove(key(old.ign()));
             int idx = entries.indexOf(old);
             if (idx >= 0) entries.set(idx, e); else entries.add(e);
             r = Result.UPDATED;
@@ -191,6 +198,12 @@ public final class Giveaway {
     public static void feed(String text, int color) {
         feed.addFirst(new FeedItem(text, color, System.currentTimeMillis()));
         while (feed.size() > 40) feed.pollLast();
+    }
+
+    /** "floplingg", "FlopLingg" and ".floplingg" are the same player. */
+    static String key(String ign) {
+        String k = ign.toLowerCase(Locale.ROOT);
+        return k.startsWith(".") ? k.substring(1) : k;
     }
 
     // ---------------------------------------------------------------- tick
