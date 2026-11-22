@@ -150,7 +150,9 @@ public final class GiveawayScreen extends Screen {
         Ui.text(c, "Chat", ix, y + 78, Ui.FAINT);
         int hx = ix + textRenderer.getWidth("Chat ");
         Ui.text(c, "!<IGN>", hx, y + 78, Ui.accent());
-        Ui.text(c, "to enter · 1 per viewer", hx + textRenderer.getWidth("!<IGN> "), y + 78, Ui.FAINT);
+        int bx2 = hx + textRenderer.getWidth("!<IGN> ");
+        Ui.text(c, "· Bedrock", bx2, y + 78, Ui.FAINT);
+        Ui.text(c, "!.<name>", bx2 + textRenderer.getWidth("· Bedrock "), y + 78, Ui.accent());
 
         // main action
         int by = y + 92, bh = 18;
@@ -281,6 +283,11 @@ public final class GiveawayScreen extends Screen {
             int nx = ix + 20;
             Ui.text(c, e.ign(), nx, ry + 3, Ui.TEXT);
             int after = nx + textRenderer.getWidth(e.ign()) + 5;
+            if (e.bedrock()) {
+                Ui.round(c, after, ry + 2, 18, 9, 4, 0x33FFFFFF);
+                Ui.text(c, "BE", after + 4, ry + 3, Ui.MUTED);
+                after += 21;
+            }
             if (!e.source().equals("Twitch")) {
                 Ui.round(c, after, ry + 2, 26, 9, 4, Ui.alpha(0xFF31C3A2, 0.25f));
                 Ui.text(c, "DON", after + 4, ry + 3, 0xFF31C3A2);

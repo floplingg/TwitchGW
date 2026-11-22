@@ -15,9 +15,11 @@ public final class Giveaway {
     private Giveaway() {}
 
     public enum State { IDLE, RUNNING, DRAWING, DONE }
-    public enum Result { OK, CLOSED, BAD_NAME, ALREADY_ENTERED, NAME_TAKEN, SUBS_ONLY }
+    public enum Result { OK, UPDATED, CLOSED, BAD_NAME, ALREADY_ENTERED, NAME_TAKEN, SUBS_ONLY, REMOVED }
 
-    public record Entry(String ign, String viewer, String source, boolean supporter, long time) {}
+    public record Entry(String userKey, String ign, String viewer, String source, boolean supporter, long time) {
+        public boolean bedrock() { return ign.startsWith("."); }
+    }
     public record FeedItem(String text, int color, long time) {}
 
     public static final double TAU = Math.PI * 2;
@@ -26,7 +28,9 @@ public final class Giveaway {
 
     /** Minecraft Java usernames: 3-16 chars, letters/digits/underscore. */
     private static final Pattern IGN = Pattern.compile("^[A-Za-z0-9_]{3,16}$");
-    private static final Pattern IGN_IN_TEXT = Pattern.compile("!<?([A-Za-z0-9_]{3,16})>?");
+    /** Bedrock (Geyser/Floodgate) names: "." + gamertag, spaces become underscores. */
+    private static final Pattern BEDROCK = Pattern.compile("^\\.[A-Za-z0-9_]{1,16}$");
+    private static final Pattern IGN_IN_TEXT = Pattern.compile("!<?(\\.?[A-Za-z0-9_]{1,16})>?");
     /** Common bot commands that should never count as a name. */
     private static final Set<String> COMMANDS = Set.of(
             "discord", "socials", "uptime", "commands", "help", "lurk", "unlurk", "followage",
@@ -39,8 +43,12 @@ public final class Giveaway {
     public static volatile long startAt, endAt;
 
     public static final List<Entry> entries = new CopyOnWriteArrayList<>();
-    private static final Set<String> users = ConcurrentHashMap.newKeySet();
-    private static final Set<String> names = ConcurrentHashMap.newKeySet();
+    /** viewer -> their current entry */
+    private static final Map<String, Entry> byUser = new ConcurrentHashMap<>();
+    /** lower-case name -> viewer who owns it */
+    private static final Map<String, String> nameOwner = new ConcurrentHashMap<>();
+    /** viewers removed by the host can't re-enter this giveaway */
+    private static final Set<String> banned = ConcurrentHashMap.newKeySet();
     public static final Deque<FeedItem> feed = new ConcurrentLinkedDeque<>();
 
     public static volatile Draw draw;
@@ -53,8 +61,9 @@ public final class Giveaway {
     public static synchronized void start() {
         Config c = Config.get();
         entries.clear();
-        users.clear();
-        names.clear();
+        byUser.clear();
+        nameOwner.clear();
+        banned.clear();
         prize = c.prize.isBlank() ? "Giveaway" : c.prize.trim();
         winnersWanted = c.winners;
         startAt = System.currentTimeMillis();
@@ -78,7 +87,9 @@ public final class Giveaway {
     public static synchronized void remove(Entry e) {
         if (entries.remove(e)) {
             // The viewer stays locked out; their name is freed up.
-            names.remove(e.ign().toLowerCase(Locale.ROOT));
+            nameOwner.remove(e.ign().toLowerCase(Locale.ROOT));
+            byUser.remove(e.userKey());
+            banned.add(e.userKey());
             feed("Removed " + e.ign(), 0xFFAAAAAA);
         }
     }
@@ -100,12 +111,30 @@ public final class Giveaway {
         if (state != State.RUNNING || message == null) return;
         String m = message.trim();
         if (!m.startsWith("!")) return;
-        String tok = m.substring(1).trim();
-        int sp = tok.indexOf(' ');
-        if (sp >= 0) tok = tok.substring(0, sp);
-        tok = tok.replace("<", "").replace(">", "");
-        if (tok.isEmpty() || COMMANDS.contains(tok.toLowerCase(Locale.ROOT))) return;
+        String rest = m.substring(1).replace("<", "").replace(">", "").trim();
+        String tok;
+        if (rest.startsWith(".")) {
+            tok = bedrockName(rest.substring(1));
+            if (tok == null) return;
+        } else {
+            int sp = rest.indexOf(' ');
+            tok = sp >= 0 ? rest.substring(0, sp) : rest;
+            if (tok.isEmpty() || COMMANDS.contains(tok.toLowerCase(Locale.ROOT))) return;
+        }
         report(tryEnter(userKey, viewer, tok, supporter, "Twitch"), viewer, tok);
+    }
+
+    /**
+     * "!.Cool Gamer 12 |" -> ".Cool_Gamer_12". Gamertags can contain spaces, so the whole message
+     * is used; if that is too long (extra chat text), only the first word is kept.
+     */
+    static String bedrockName(String raw) {
+        String clean = raw.replaceAll("[^A-Za-z0-9_ ]", " ").trim().replaceAll("\\s+", " ");
+        if (clean.isEmpty()) return null;
+        String joined = clean.replace(' ', '_');
+        if (joined.length() <= 16) return "." + joined;
+        int sp = clean.indexOf(' ');
+        return "." + (sp > 0 ? clean.substring(0, sp) : clean);
     }
 
     /** Streamlabs donation: the message may contain !<IGN> anywhere. */
@@ -120,6 +149,7 @@ public final class Giveaway {
     private static void report(Result r, String viewer, String ign) {
         switch (r) {
             case OK -> feed("+ " + ign + "  (" + viewer + ")", Config.get().accent);
+            case UPDATED -> feed(viewer + " changed name to " + ign, Config.get().accent);
             case ALREADY_ENTERED -> feed(viewer + " already entered", 0xFF8A8F98);
             case NAME_TAKEN -> feed(ign + " is already in", 0xFF8A8F98);
             case SUBS_ONLY -> feed(viewer + ": subs only", 0xFF8A8F98);
@@ -129,19 +159,33 @@ public final class Giveaway {
 
     public static synchronized Result tryEnter(String userKey, String viewer, String ign, boolean supporter, String source) {
         if (state != State.RUNNING || System.currentTimeMillis() >= endAt) return Result.CLOSED;
-        if (ign == null || !IGN.matcher(ign).matches()) return Result.BAD_NAME;
+        if (ign == null || !(IGN.matcher(ign).matches() || BEDROCK.matcher(ign).matches())) return Result.BAD_NAME;
         if (Config.get().subsOnly && !supporter) return Result.SUBS_ONLY;
         String uk = userKey.toLowerCase(Locale.ROOT);
         String nk = ign.toLowerCase(Locale.ROOT);
-        if (users.contains(uk)) return Result.ALREADY_ENTERED;
-        if (names.contains(nk)) return Result.NAME_TAKEN;
-        users.add(uk);
-        names.add(nk);
+        if (banned.contains(uk)) return Result.REMOVED;
+        String owner = nameOwner.get(nk);
+        if (owner != null) return owner.equals(uk) ? Result.ALREADY_ENTERED : Result.NAME_TAKEN;
+
         long now = System.currentTimeMillis();
-        entries.add(new Entry(ign, viewer, source, supporter, now));
+        Entry old = byUser.get(uk);
+        Entry e = new Entry(uk, ign, viewer, source, supporter, old != null ? old.time() : now);
+        Result r;
+        if (old != null) {
+            // Typo fix: swap their old name for the new one, keeping their spot in the list.
+            nameOwner.remove(old.ign().toLowerCase(Locale.ROOT));
+            int idx = entries.indexOf(old);
+            if (idx >= 0) entries.set(idx, e); else entries.add(e);
+            r = Result.UPDATED;
+        } else {
+            entries.add(e);
+            r = Result.OK;
+        }
+        nameOwner.put(nk, uk);
+        byUser.put(uk, e);
         lastJoin = ign;
         lastJoinAt = now;
-        return Result.OK;
+        return r;
     }
 
     public static void feed(String text, int color) {

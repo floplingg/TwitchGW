@@ -18,4 +18,6 @@ Or locally: `./gradlew build` -> `build/libs/flop-twitch-giveaway-1.0.0.jar`. Ne
 - Hover an entry in the list -> **remove** to disqualify it.
 - Accent colour dots + HUD toggle in the top-right of the menu. Settings save to `config/flopgiveaway.json`.
 
-Names must be valid Minecraft usernames (3-16 letters/digits/_). Bot commands like !discord, !uptime are ignored.
+Java names: `!Steve` (3-16 letters/digits/_). Bedrock names: `!.Gamertag` (spaces become `_`, like Geyser/Floodgate).
+If a viewer types their name wrong, they just type it again: their old entry is replaced (same spot in the list). A name can only belong to one viewer, and viewers you remove can't re-enter.
+ Bot commands like !discord, !uptime are ignored.
